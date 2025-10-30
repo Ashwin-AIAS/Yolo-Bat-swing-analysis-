@@ -1,0 +1,19 @@
+# Core scientific stack
+numpy
+pandas
+scipy
+opencv-python-headless
+matplotlib
+
+# AI / ML
+ultralytics
+mediapipe
+sort-track
+
+# App & Visualization
+streamlit
+imageio
+imageio-ffmpeg
+
+# Testing
+pytest
