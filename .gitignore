@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+venv/
+.venv/
+
+# Data (Don't upload large videos)
+data/sample_videos/
+results/
+
+# VS Code
+.vscode/
