@@ -4,7 +4,7 @@ Core logic for swing detection and metric calculation.
 import numpy as np
 import pandas as pd
 from scipy.signal import savgol_filter, welch
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict, Any, Optional ,List 
 
 from utils.geometry import calculate_angle_between_vectors, interpolate_points, smooth_trajectory
 
