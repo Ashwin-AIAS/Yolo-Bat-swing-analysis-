@@ -1,15 +1,7 @@
 """
-Bat Swing Analysis - CLI Entrypoint
-
-This script runs the full analysis pipeline on a single video file.
-
-Example Usage:
-python test_run.py \
-    --video data/sample_videos/swing1.mp4 \
-    --yolo-model yolov8n.pt \
-    --scale 0.004 \
-    --output_dir results/swing1
+Bat Swing Analysis - CLI Entrypoint (Hard-coded for debugging)
 """
+print("DEBUG: Script started. Importing libraries...")
 
 import argparse
 import logging
@@ -22,8 +14,15 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from detectors.yolov8_detector import YOLOv8Detector
-from pose.mediapipe_pose import MediaPipePose
+print("DEBUG: Importing local files... (Importing MediaPipe FIRST)")
+
+# --- IMPORT ORDER CHANGED ---
+# Import MediaPipe (pose) FIRST to avoid library conflict
+from pose.mediapipe_pose import MediaPipePose 
+# Import YOLO (detectors) SECOND
+from detectors.yolov8_detector import YOLOv8Detector 
+# --- END OF CHANGE ---
+
 from metrics.swing_metrics import (
     PixelScaler,
     compute_derivatives,
@@ -33,6 +32,9 @@ from metrics.swing_metrics import (
 from utils.geometry import interpolate_points, estimate_bat_tip, smooth_trajectory
 from viz.overlay import create_swing_gif
 from viz.plots import plot_swing_analytics
+
+print("DEBUG: All imports successful.")
+
 
 # Configure logging
 logging.basicConfig(
@@ -65,35 +67,23 @@ def process_frame(
 ) -> Optional[Dict[str, Any]]:
     """
     Processes a single video frame to detect objects and estimate pose.
-    
-    This simplified version assumes a single player of interest.
     """
-    # 1. Run Detection
     detections = detector.detect(frame)
-
-    # Filter for 'person' and 'bat'
-    # --- MODIFIED TO MATCH YOUR CUSTOM MODEL ---
     person_dets = [d for d in detections if d["class_name"] == "PLAYER"]
     bat_dets = [d for d in detections if d["class_name"] == "BAT"]
     
-    # 2. Find Player of Interest (assume largest 'person' bbox)
     if not person_dets:
         logging.warning(f"No 'PLAYER' detected in frame {frame_idx}")
         return None
     
-    # Sort by bbox area (w*h) descending
     person_dets.sort(key=lambda d: (d['bbox'][2] - d['bbox'][0]) * (d['bbox'][3] - d['bbox'][1]), reverse=True)
     player_bbox = person_dets[0]["bbox"]
 
-    # 3. Run Pose Estimation
-    # We run pose on the full frame for simplicity, as MediaPipe is fast
-    # and handles finding the person itself.
     pose_results = pose_estimator.process_frame(frame)
     if not pose_results:
         logging.warning(f"No pose detected in frame {frame_idx}")
         return None
 
-    # 4. Extract Key Keypoints
     landmarks = pose_results.get("landmarks_2d_pixels", {})
     frame_keypoints = {}
     missing_keypoint = False
@@ -104,22 +94,16 @@ def process_frame(
         frame_keypoints[key] = landmarks.get(key)
     
     if missing_keypoint:
-        # We can't proceed without all keypoints for this frame
         return {"keypoints": {key: (np.nan, np.nan) for key in REQUIRED_LANDMARKS}, "bat_tip": (np.nan, np.nan)}
 
-    # 5. Find Bat and Bat-Tip
-    # Find the bat detection closest to the player's right wrist
     right_wrist_pt = frame_keypoints["RIGHT_WRIST"]
     bat_tip = (np.nan, np.nan)
 
     if bat_dets and right_wrist_pt:
-        # Find bat closest to wrist
         bat_dets.sort(key=lambda d: np.linalg.norm(
             np.array([(d['bbox'][0] + d['bbox'][2]) / 2, (d['bbox'][1] + d['bbox'][3]) / 2]) - np.array(right_wrist_pt)
         ))
         bat_bbox = bat_dets[0]["bbox"]
-        
-        # Estimate bat tip
         bat_tip = estimate_bat_tip(bat_bbox, right_wrist_pt)
     else:
         logging.warning(f"No 'BAT' detected or wrist missing in frame {frame_idx}")
@@ -127,14 +111,16 @@ def process_frame(
     return {"keypoints": frame_keypoints, "bat_tip": bat_tip}
 
 
+# --- THIS BLOCK IS CHANGED (Removed type hints to fix SyntaxError) ---
 def run_pipeline(
-    video_path: str,
-    yolo_model_path: str,
-    scale_mps: float,
-    output_dir: Path,
-    fps_override: Optional[float] = None,
-    disable_progress_bar: bool = False
+    video_path,
+    yolo_model_path,
+    scale_mps,
+    output_dir,
+    fps_override = None,
+    disable_progress_bar = False
 ):
+# --- END OF CHANGE ---
     """
     Main analysis pipeline function.
     """
@@ -143,11 +129,24 @@ def run_pipeline(
     
     # 1. Initialization
     output_dir.mkdir(parents=True, exist_ok=True)
-    detector = YOLOv8Detector(yolo_model_path)
+    
+    
+    # --- THIS BLOCK IS SWAPPED TO FIX HANG ---
+    logging.info("Initializing MediaPipePose...")
     pose_estimator = MediaPipePose()
-    scaler = PixelScaler(pixel_ref=1.0, meter_ref=scale_mps) # 1 pixel = scale_mps meters
+    logging.info("MediaPipePose initialized.")
+    
+    logging.info("Initializing YOLOv8Detector...")
+    detector = YOLOv8Detector(yolo_model_path)
+    logging.info("YOLOv8Detector initialized.")
+    # --- END OF FIX ---
+    
+    
+    scaler = PixelScaler(pixel_ref=1.0, meter_ref=scale_mps)
+    logging.info("PixelScaler initialized.")
 
     cap = cv2.VideoCapture(video_path)
+    logging.info("cv2.VideoCapture called.")
     if not cap.isOpened():
         logging.error(f"Error: Could not open video file {video_path}")
         sys.exit(1)
@@ -155,14 +154,12 @@ def run_pipeline(
     fps = fps_override if fps_override else get_video_fps(cap)
     logging.info(f"Video FPS: {fps}")
 
-    # --- THIS BLOCK IS CHANGED ---
-    # all_frames = []  <-- DELETED
     all_keypoints = []
     all_bat_tips = []
-    # --- END OF CHANGE ---
     
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     pbar = tqdm(total=frame_count, desc="Processing frames", disable=disable_progress_bar)
+    logging.info("Progress bar initialized. Starting frame loop...")
 
     # 2. Per-Frame Processing Loop
     frame_idx = 0
@@ -171,17 +168,12 @@ def run_pipeline(
         if not ret:
             break
 
-        # --- THIS BLOCK IS CHANGED ---
-        # all_frames.append(frame)  <-- DELETED
-        # --- END OF CHANGE ---
-
         frame_data = process_frame(frame, frame_idx, detector, pose_estimator)
 
         if frame_data:
             all_keypoints.append(frame_data["keypoints"])
             all_bat_tips.append(frame_data["bat_tip"])
         else:
-            # Append NaNs if processing failed
             all_keypoints.append({key: (np.nan, np.nan) for key in REQUIRED_LANDMARKS})
             all_bat_tips.append((np.nan, np.nan))
         
@@ -190,24 +182,21 @@ def run_pipeline(
 
     cap.release()
     pbar.close()
-    logging.info(f"Processed {len(all_keypoints)} frames.") # Changed this line too
+    logging.info(f"Frame loop finished. Processed {len(all_keypoints)} frames.")
 
-    if not all_keypoints: # Changed this line too
+    if not all_keypoints:
         logging.error("No frames processed. Exiting.")
         return
 
     # 3. Trajectory Generation and Post-Processing
     logging.info("Generating and smoothing trajectories...")
     
-    # Convert lists of tuples/dicts into structured numpy arrays
     tip_trajectory = np.array(all_bat_tips, dtype=float)
     
     keypoint_trajectories = {}
     for key in REQUIRED_LANDMARKS:
         keypoint_trajectories[key] = np.array([kp[key] for kp in all_keypoints], dtype=float)
 
-    # Interpolate and smooth all trajectories
-    # A larger window (e.g., 11) is good for smoothing high-speed motion
     smooth_window = 11
     poly_order = 2
     
@@ -229,7 +218,6 @@ def run_pipeline(
     )
     speed_mps = scaler.to_mps(speed_px_per_frame, fps)
 
-    # Detect swings: speed > 2.0 m/s for at least 5 frames
     swings = detect_swings(
         speed_mps, speed_thresh_mps=2.0, min_swing_frames=int(fps * 0.1) # min 100ms
     )
@@ -238,12 +226,11 @@ def run_pipeline(
     # 5. Analyze Each Swing and Generate Outputs
     all_swing_metrics = []
     
-    # Consolidate all data for analysis functions
     full_trajectory_data = {
         "bat_tip": tip_trajectory_smooth,
         "speed_mps": speed_mps,
         "accel_px_per_frame_sq": accel_px_per_frame_sq,
-        **kp_trajectories_smooth # Adds "RIGHT_SHOULDER", "RIGHT_WRIST" etc.
+        **kp_trajectories_smooth
     }
 
     for i, (start_frame, end_frame) in enumerate(swings):
@@ -265,7 +252,8 @@ def run_pipeline(
             # A. Plot
             plot_path = output_dir / f"swing_{i}_plots.png"
             logging.info(f"Generating plot: {plot_path}")
-            plot__analytics(
+            
+            plot_swing_analytics(
                 swing_metrics["time_series"],
                 output_path=plot_path,
                 title=f"Swing {i} Analysis"
@@ -275,22 +263,19 @@ def run_pipeline(
             gif_path = output_dir / f"swing_{i}_overlay.gif"
             logging.info(f"Generating GIF: {gif_path}")
             
-            # Prepare data for overlay
             overlay_data = {
-                "bat_tip": tip_trajectory, # Show raw trajectory
+                "bat_tip": tip_trajectory,
                 "bat_tip_smooth": tip_trajectory_smooth,
-                "keypoints": all_keypoints, # Show raw keypoints
+                "keypoints": all_keypoints,
             }
             
-            # --- THIS BLOCK IS CHANGED ---
             create_swing_gif(
-                video_path=video_path, # <-- Pass video_path
+                video_path=video_path,
                 overlay_data=overlay_data,
                 swing_frames=(start_frame, end_frame),
                 output_path=str(gif_path),
                 fps=fps
             )
-            # --- END OF CHANGE ---
             
         except Exception as e:
             logging.error(f"Failed to generate visualization for swing {i}: {e}")
@@ -299,13 +284,11 @@ def run_pipeline(
     if all_swing_metrics:
         df = pd.DataFrame(all_swing_metrics)
         
-        # Reorder columns for readability
         csv_cols = [
             "video", "swing_id", "start_frame", "end_frame", "duration_s",
             "peak_speed_mps", "peak_angular_velocity_rps",
             "mean_angular_velocity_rps", "swing_angle_deg", "smoothness_score"
         ]
-        # Add any extra columns (like time_series) at the end
         extra_cols = [col for col in df.columns if col not in csv_cols]
         df = df[csv_cols + extra_cols]
         
@@ -318,6 +301,8 @@ def run_pipeline(
     logging.info("Analysis complete.")
 
 
+# This main() function is no longer used by __main__ but is kept
+# in case you want to fix argparse later.
 def main():
     parser = argparse.ArgumentParser(description="Bat Swing Analysis CLI")
     parser.add_argument(
@@ -348,7 +333,7 @@ def main():
         help="Override video FPS. If not set, it's read from the video file.",
     )
     args = parser.parse_args()
-
+    
     output_path = Path(args.output_dir)
     
     run_pipeline(
@@ -361,4 +346,28 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    print("DEBUG: __name__ == __main__ block reached.")
+    print("DEBUG: Bypassing argparse and running with hard-coded values...")
+    
+    # --- Define all parameters manually ---
+    VIDEO_FILE = "data/sample_videos/cricket_swing.mp4"
+    YOLO_MODEL = "runs/detect/train3/weights/best.pt"
+    SCALE_MPS = 0.003
+    OUTPUT_DIR = "results/cricket_swing_custom_model_hardcoded"
+    FPS_OVERRIDE = None
+    
+    # --- Run the pipeline directly ---
+    try:
+        run_pipeline(
+            video_path=VIDEO_FILE,
+            yolo_model_path=YOLO_MODEL,
+            scale_mps=SCALE_MPS,
+            output_dir=Path(OUTPUT_DIR),
+            fps_override=FPS_OVERRIDE,
+            disable_progress_bar=True,  # <-- This fixes the [WinError 6] crash
+        )
+    except Exception as e:
+        logging.error(f"A critical error occurred: {e}")
+        print(f"DEBUG: A critical error occurred: {e}")
+        import traceback
+        traceback.print_exc()
