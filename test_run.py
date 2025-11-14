@@ -4,7 +4,7 @@ Bat Swing Analysis - CLI Entrypoint
 This script runs the full analysis pipeline on a single video file.
 
 Example Usage:
-python run_analysis.py \
+python test_run.py \
     --video data/sample_videos/swing1.mp4 \
     --yolo-model yolov8n.pt \
     --scale 0.004 \
@@ -72,12 +72,13 @@ def process_frame(
     detections = detector.detect(frame)
 
     # Filter for 'person' and 'bat'
-    person_dets = [d for d in detections if d["class_name"] == "person"]
-    bat_dets = [d for d in detections if d["class_name"] == "bat"]
+    # --- MODIFIED TO MATCH YOUR CUSTOM MODEL ---
+    person_dets = [d for d in detections if d["class_name"] == "PLAYER"]
+    bat_dets = [d for d in detections if d["class_name"] == "BAT"]
     
     # 2. Find Player of Interest (assume largest 'person' bbox)
     if not person_dets:
-        logging.warning(f"No 'person' detected in frame {frame_idx}")
+        logging.warning(f"No 'PLAYER' detected in frame {frame_idx}")
         return None
     
     # Sort by bbox area (w*h) descending
@@ -121,7 +122,7 @@ def process_frame(
         # Estimate bat tip
         bat_tip = estimate_bat_tip(bat_bbox, right_wrist_pt)
     else:
-        logging.warning(f"No 'bat' detected or wrist missing in frame {frame_idx}")
+        logging.warning(f"No 'BAT' detected or wrist missing in frame {frame_idx}")
 
     return {"keypoints": frame_keypoints, "bat_tip": bat_tip}
 
@@ -132,6 +133,7 @@ def run_pipeline(
     scale_mps: float,
     output_dir: Path,
     fps_override: Optional[float] = None,
+    disable_progress_bar: bool = False
 ):
     """
     Main analysis pipeline function.
@@ -153,12 +155,14 @@ def run_pipeline(
     fps = fps_override if fps_override else get_video_fps(cap)
     logging.info(f"Video FPS: {fps}")
 
-    all_frames = []
+    # --- THIS BLOCK IS CHANGED ---
+    # all_frames = []  <-- DELETED
     all_keypoints = []
     all_bat_tips = []
+    # --- END OF CHANGE ---
     
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    pbar = tqdm(total=frame_count, desc="Processing frames")
+    pbar = tqdm(total=frame_count, desc="Processing frames", disable=disable_progress_bar)
 
     # 2. Per-Frame Processing Loop
     frame_idx = 0
@@ -167,8 +171,9 @@ def run_pipeline(
         if not ret:
             break
 
-        # Store BGR frame for GIF creation later
-        all_frames.append(frame)
+        # --- THIS BLOCK IS CHANGED ---
+        # all_frames.append(frame)  <-- DELETED
+        # --- END OF CHANGE ---
 
         frame_data = process_frame(frame, frame_idx, detector, pose_estimator)
 
@@ -185,9 +190,9 @@ def run_pipeline(
 
     cap.release()
     pbar.close()
-    logging.info(f"Processed {len(all_frames)} frames.")
+    logging.info(f"Processed {len(all_keypoints)} frames.") # Changed this line too
 
-    if not all_frames:
+    if not all_keypoints: # Changed this line too
         logging.error("No frames processed. Exiting.")
         return
 
@@ -260,7 +265,7 @@ def run_pipeline(
             # A. Plot
             plot_path = output_dir / f"swing_{i}_plots.png"
             logging.info(f"Generating plot: {plot_path}")
-            plot_swing_analytics(
+            plot__analytics(
                 swing_metrics["time_series"],
                 output_path=plot_path,
                 title=f"Swing {i} Analysis"
@@ -277,13 +282,16 @@ def run_pipeline(
                 "keypoints": all_keypoints, # Show raw keypoints
             }
             
+            # --- THIS BLOCK IS CHANGED ---
             create_swing_gif(
-                frames=all_frames,
+                video_path=video_path, # <-- Pass video_path
                 overlay_data=overlay_data,
                 swing_frames=(start_frame, end_frame),
                 output_path=str(gif_path),
                 fps=fps
             )
+            # --- END OF CHANGE ---
+            
         except Exception as e:
             logging.error(f"Failed to generate visualization for swing {i}: {e}")
 
@@ -353,5 +361,4 @@ def main():
 
 
 if __name__ == "__main__":
-    print("TESTING: Main block is running") # <-- ADD THIS LINE
     main()
