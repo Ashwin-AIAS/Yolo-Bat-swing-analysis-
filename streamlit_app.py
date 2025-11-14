@@ -11,9 +11,9 @@ import sys
 # Add project root to sys.path to allow importing modules
 sys.path.append(str(Path(__file__).parent))
 try:
-    from run_analysis import run_pipeline
+    from test_run import run_pipeline
 except ImportError:
-    st.error("Could not import the main 'run_analysis' pipeline. "
+    st.error("Could not import the main 'test_run' pipeline. "
              "Make sure all project files are in the same directory.")
     st.stop()
 
@@ -33,7 +33,7 @@ with st.sidebar:
     # Help text for calibration
     st.info("""
     **How to find 'Scale' (meters/pixel):**
-    1.  Measure an object of known length in your video (e.g., a bat $\approx$ 1.0m).
+    1.  Measure an object of known length in your video (e..g., a bat $\approx$ 1.0m).
     2.  Find its length in pixels (use any image editor).
     3.  `Scale = Known Length (m) / Pixel Length`
     *Example: 1.0m / 250px = 0.004*
@@ -43,7 +43,7 @@ with st.sidebar:
         "Pixel-to-Meter Scale (meters/pixel)", 
         min_value=0.0001, 
         max_value=0.1, 
-        value=0.004, 
+        value=0.003, # Updated default scale for cricket
         step=0.0001,
         format="%.4f",
         help="The conversion factor from pixels to meters."
@@ -51,8 +51,8 @@ with st.sidebar:
     
     yolo_model = st.text_input(
         "YOLO Model Path", 
-        value="yolov8n.pt",
-        help="Path to a .pt model file. 'yolov8n.pt' is the default."
+        value="runs/detect/train3/weights/best.pt",
+        help="Path to your custom .pt model file."
     )
     
     fps_override = st.number_input(
@@ -72,10 +72,18 @@ if run_button and uploaded_file is not None:
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             
-            # Save uploaded file temporarily
+            # --- THIS BLOCK IS CHANGED (Lines 85-93) ---
+            # Save uploaded file temporarily in chunks to save memory
             video_path = temp_dir / uploaded_file.name
             with open(video_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+                # Read and write in 1MB chunks
+                chunk_size = 1024 * 1024
+                while True:
+                    chunk = uploaded_file.read(chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+            # --- END OF CHANGE ---
                 
             # Define output directory
             output_dir = temp_dir / "analysis_results"
@@ -89,7 +97,8 @@ if run_button and uploaded_file is not None:
                     yolo_model_path=yolo_model,
                     scale_mps=scale,
                     output_dir=output_dir,
-                    fps_override=float(fps_override) if fps_override > 0 else None
+                    fps_override=float(fps_override) if fps_override > 0 else None,
+                    disable_progress_bar=True
                 )
                 
                 end_time = time.time()
