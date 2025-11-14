@@ -6,6 +6,8 @@ import cv2
 import imageio
 from typing import List, Dict, Any, Tuple
 from tqdm import tqdm
+from pathlib import Path
+import logging
 
 # Define some colors (BGR format)
 COLOR_RED = (0, 0, 255)
@@ -84,8 +86,9 @@ def draw_frame_overlay(
     return vis_frame
 
 
+# --- THIS ENTIRE FUNCTION IS REPLACED ---
 def create_swing_gif(
-    frames: List[np.ndarray],
+    video_path: str,
     overlay_data: Dict[str, Any],
     swing_frames: Tuple[int, int],
     output_path: str,
@@ -94,36 +97,50 @@ def create_swing_gif(
 ):
     """
     Creates an animated GIF for a specific swing event.
-
-    Args:
-        frames (List[np.ndarray]): The *full* list of all video frames.
-        overlay_data (Dict[str, Any]): Data needed for drawing overlays.
-        swing_frames (Tuple[int, int]): (start_frame, end_frame) of the swing.
-        output_path (str): Path to save the .gif file.
-        fps (float): FPS for the output GIF.
-        padding_frames (int): Number of frames to include before/after the swing.
+    Reads frames directly from the video file to save memory.
     """
     start_f, end_f = swing_frames
     
     # Add padding
     start_f = max(0, start_f - padding_frames)
-    end_f = min(len(frames) - 1, end_f + padding_frames)
+    end_f = end_f + padding_frames # We'll check the upper bound inside the loop
     
     gif_frames = []
     
-    for i in tqdm(range(start_f, end_f + 1), desc=f"Creating GIF {Path(output_path).name}", leave=False):
-        frame = frames[i]
-        
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        logging.error(f"GIF Error: Could not open video {video_path}")
+        return
+
+    # Set the video capture to the starting frame
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
+    
+    current_frame_idx = start_f
+    
+    desc = f"Creating GIF {Path(output_path).name}"
+    for i in tqdm(range(start_f, end_f + 1), desc=desc, leave=False):
+        ret, frame = cap.read()
+        if not ret:
+            break # Reached end of video
+
         # Draw overlay
         overlay_frame = draw_frame_overlay(
             frame=frame,
-            frame_idx=i,
+            frame_idx=current_frame_idx,
             overlay_data=overlay_data
         )
         
         # Convert BGR (OpenCV) to RGB (imageio)
         rgb_frame = cv2.cvtColor(overlay_frame, cv2.COLOR_BGR2RGB)
         gif_frames.append(rgb_frame)
+        current_frame_idx += 1
         
+    cap.release()
+    
+    if not gif_frames:
+        logging.warning("No frames were extracted for the GIF.")
+        return
+
     # Save the GIF
     imageio.mimsave(output_path, gif_frames, fps=min(fps, 30)) # Cap FPS at 30 for GIFs
+# --- END OF REPLACEMENT ---
