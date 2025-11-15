@@ -7,6 +7,12 @@ import time
 from pathlib import Path
 import pandas as pd
 import sys
+import os # <-- NEW IMPORT
+
+# --- NEW FIX: Prevent ML library conflict ---
+os.environ["OMP_NUM_THREADS"] = "1"
+# --- END OF FIX ---
+
 
 # Add project root to sys.path to allow importing modules
 sys.path.append(str(Path(__file__).parent))
@@ -51,7 +57,7 @@ with st.sidebar:
     
     yolo_model = st.text_input(
         "YOLO Model Path", 
-        value="runs/detect/train3/weights/best.pt",
+        value="runs/detect/train3/weights/best.pt", # <-- IMPORTANT CHANGE
         help="Path to your custom .pt model file."
     )
     
@@ -72,7 +78,7 @@ if run_button and uploaded_file is not None:
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             
-            # --- THIS BLOCK IS CHANGED (Lines 85-93) ---
+            # --- THIS BLOCK IS CHANGED (Fix for OutOfMemoryError) ---
             # Save uploaded file temporarily in chunks to save memory
             video_path = temp_dir / uploaded_file.name
             with open(video_path, "wb") as f:
@@ -98,7 +104,7 @@ if run_button and uploaded_file is not None:
                     scale_mps=scale,
                     output_dir=output_dir,
                     fps_override=float(fps_override) if fps_override > 0 else None,
-                    disable_progress_bar=True
+                    disable_progress_bar=True  # <-- This fixes the [WinError 6] crash
                 )
                 
                 end_time = time.time()

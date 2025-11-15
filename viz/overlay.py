@@ -26,15 +26,6 @@ def draw_frame_overlay(
 ) -> np.ndarray:
     """
     Draws all annotations on a single frame.
-    
-    Args:
-        frame (np.ndarray): The video frame (BGR).
-        frame_idx (int): The current frame index.
-        overlay_data (Dict[str, Any]): Dictionary containing trajectories
-            like 'bat_tip', 'keypoints', etc.
-    
-    Returns:
-        np.ndarray: The frame with overlays drawn.
     """
     vis_frame = frame.copy()
     h, w, _ = vis_frame.shape
@@ -118,7 +109,8 @@ def create_swing_gif(
     current_frame_idx = start_f
     
     desc = f"Creating GIF {Path(output_path).name}"
-    for i in tqdm(range(start_f, end_f + 1), desc=desc, leave=False):
+    # Disable tqdm progress bar for GIF creation
+    for i in range(start_f, end_f + 1):
         ret, frame = cap.read()
         if not ret:
             break # Reached end of video

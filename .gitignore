@@ -3,9 +3,18 @@ __pycache__/
 venv/
 .venv/
 
-# Data (Don't upload large videos)
-data/sample_videos/
-results/
-
 # VS Code
 .vscode/
+
+# OS files
+.DS_Store
+
+# Data, Results, and Models
+data/sample_videos/
+data/frames_to_annotate/
+results/
+dataset/
+runs/
+*.pt
+*.zip
+*.csv
