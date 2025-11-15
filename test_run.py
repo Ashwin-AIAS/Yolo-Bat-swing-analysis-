@@ -6,13 +6,8 @@ print("DEBUG: Script started. Importing libraries...")
 import argparse
 import logging
 import sys
-import os  # <-- FIX 1: Import OS
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
-
-# --- FIX 2: Prevent ML library conflict ---
-os.environ["OMP_NUM_THREADS"] = "1"
-# --- END OF FIX ---
 
 import cv2
 import numpy as np
@@ -21,10 +16,12 @@ from tqdm import tqdm
 
 print("DEBUG: Importing local files... (Importing MediaPipe FIRST)")
 
-# --- FIX 3: Correct Import Order ---
+# --- IMPORT ORDER CHANGED ---
+# Import MediaPipe (pose) FIRST to avoid library conflict
 from pose.mediapipe_pose import MediaPipePose 
+# Import YOLO (detectors) SECOND
 from detectors.yolov8_detector import YOLOv8Detector 
-# --- END OF FIX ---
+# --- END OF CHANGE ---
 
 from metrics.swing_metrics import (
     PixelScaler,
@@ -72,7 +69,6 @@ def process_frame(
     Processes a single video frame to detect objects and estimate pose.
     """
     detections = detector.detect(frame)
-    # --- FIX 4: Use Custom Model Class Names ---
     person_dets = [d for d in detections if d["class_name"] == "PLAYER"]
     bat_dets = [d for d in detections if d["class_name"] == "BAT"]
     
@@ -115,7 +111,7 @@ def process_frame(
     return {"keypoints": frame_keypoints, "bat_tip": bat_tip}
 
 
-# --- FIX 5: Removed type hints to fix SyntaxError ---
+# --- THIS BLOCK IS CHANGED (Removed type hints to fix SyntaxError) ---
 def run_pipeline(
     video_path,
     yolo_model_path,
@@ -124,7 +120,7 @@ def run_pipeline(
     fps_override = None,
     disable_progress_bar = False
 ):
-# --- END OF FIX ---
+# --- END OF CHANGE ---
     """
     Main analysis pipeline function.
     """
@@ -135,7 +131,7 @@ def run_pipeline(
     output_dir.mkdir(parents=True, exist_ok=True)
     
     
-    # --- FIX 6: Correct Initialization Order ---
+    # --- THIS BLOCK IS SWAPPED TO FIX HANG ---
     logging.info("Initializing MediaPipePose...")
     pose_estimator = MediaPipePose()
     logging.info("MediaPipePose initialized.")
@@ -162,7 +158,6 @@ def run_pipeline(
     all_bat_tips = []
     
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    # --- FIX 7: Disable progress bar (fixes [WinError 6]) ---
     pbar = tqdm(total=frame_count, desc="Processing frames", disable=disable_progress_bar)
     logging.info("Progress bar initialized. Starting frame loop...")
 
@@ -258,13 +253,11 @@ def run_pipeline(
             plot_path = output_dir / f"swing_{i}_plots.png"
             logging.info(f"Generating plot: {plot_path}")
             
-            # --- FIX 8: Typo Fix ---
             plot_swing_analytics(
                 swing_metrics["time_series"],
                 output_path=plot_path,
                 title=f"Swing {i} Analysis"
             )
-            # --- END OF FIX ---
 
             # B. GIF
             gif_path = output_dir / f"swing_{i}_overlay.gif"
@@ -276,7 +269,6 @@ def run_pipeline(
                 "keypoints": all_keypoints,
             }
             
-            # --- FIX 9: Memory Fix (pass video_path) ---
             create_swing_gif(
                 video_path=video_path,
                 overlay_data=overlay_data,

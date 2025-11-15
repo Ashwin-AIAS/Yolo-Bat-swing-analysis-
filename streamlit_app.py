@@ -7,12 +7,6 @@ import time
 from pathlib import Path
 import pandas as pd
 import sys
-import os # <-- NEW IMPORT
-
-# --- NEW FIX: Prevent ML library conflict ---
-os.environ["OMP_NUM_THREADS"] = "1"
-# --- END OF FIX ---
-
 
 # Add project root to sys.path to allow importing modules
 sys.path.append(str(Path(__file__).parent))

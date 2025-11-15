@@ -14,6 +14,10 @@ class PixelScaler:
     def __init__(self, pixel_ref: float, meter_ref: float):
         """
         Initializes the scaler.
+        
+        Args:
+            pixel_ref (float): The number of pixels (e.g., 250).
+            meter_ref (float): The corresponding number of meters (e.g., 1.0).
         """
         if pixel_ref <= 0:
             raise ValueError("pixel_ref must be positive")
@@ -33,14 +37,29 @@ def compute_derivatives(
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Computes position, velocity (speed), and acceleration from a trajectory.
+    Handles NaNs by interpolation and applies smoothing.
+    
+    Args:
+        trajectory (np.ndarray): Array of (x, y) points, shape (N, 2).
+        fps (float): Frames per second of the video.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray, np.ndarray]:
+            - pos_smooth (np.ndarray): Smoothed (x, y) trajectory.
+            - speed_px_per_frame (np.ndarray): Speed (scalar) in pixels/frame. Shape (N,).
+            - accel_px_per_frame_sq (np.ndarray): Acceleration (scalar) in pixels/frame^2. Shape (N,).
     """
     # 1. Interpolate NaNs
     pos_interp = interpolate_points(trajectory)
     
     # 2. Smooth
+    # Use a relatively wide window for acceleration calculation
     pos_smooth = smooth_trajectory(pos_interp, window=7, poly=2)
 
     # 3. Compute velocity (pixels/frame)
+    # np.gradient computes central difference, dx is (1 / (2*dt))
+    # Here dt = 1 frame, so we get (pixels / 2 frames).
+    # Using edge_order=2 gives more accurate boundary estimates.
     velocity_px_per_frame = np.gradient(pos_smooth, axis=0, edge_order=2) # Shape (N, 2)
     
     # 4. Compute speed (scalar magnitude of velocity)
@@ -62,11 +81,22 @@ def compute_angular_velocity(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Computes the angular velocity of the shoulder-to-tip vector.
+    
+    Args:
+        shoulder_pts (np.ndarray): Trajectory of the shoulder (N, 2).
+        tip_pts (np.ndarray): Trajectory of the bat-tip (N, 2).
+        fps (float): Frames per second.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]:
+            - angles_rad (np.ndarray): Angle of the vector in radians (N,).
+            - ang_vel_rad_per_sec (np.ndarray): Angular velocity in rad/s (N,).
     """
     # Create the shoulder-to-tip vectors
     vectors = tip_pts - shoulder_pts # Shape (N, 2)
     
     # Compute the angle of each vector relative to the positive x-axis
+    # arctan2(y, x)
     angles_rad = np.arctan2(vectors[:, 1], vectors[:, 0])
     
     # 'Unwrap' the angle to handle transitions from +pi to -pi
@@ -84,11 +114,20 @@ def compute_angular_velocity(
 def compute_smoothness_score(acceleration_signal: np.ndarray) -> float:
     """
     Computes a smoothness score (0-1) based on spectral entropy.
+    A smooth signal (few frequencies) has low entropy -> high score.
+    A jerky signal (many frequencies) has high entropy -> low score.
+    
+    Args:
+        acceleration_signal (np.ndarray): 1D signal (e.g., magnitude of acceleration).
+    
+    Returns:
+        float: Smoothness score [0, 1].
     """
     if np.all(acceleration_signal == 0):
         return 1.0  # Perfectly smooth
 
     # 1. Compute Power Spectral Density (PSD)
+    # nperseg=None uses the whole signal length
     f, Pxx = welch(acceleration_signal, nperseg=min(256, len(acceleration_signal)))
 
     if np.sum(Pxx) == 0:
@@ -98,9 +137,11 @@ def compute_smoothness_score(acceleration_signal: np.ndarray) -> float:
     psd_norm = Pxx / np.sum(Pxx)
     
     # 3. Compute Shannon Entropy
+    # Use a small epsilon to avoid log(0)
     entropy = -np.sum(psd_norm * np.log2(psd_norm + 1e-12))
     
     # 4. Normalize entropy
+    # Max entropy for a signal of length M is log2(M)
     if len(psd_norm) <= 1:
         return 1.0 # Not enough data to compute entropy
         
@@ -108,6 +149,8 @@ def compute_smoothness_score(acceleration_signal: np.ndarray) -> float:
     normalized_entropy = entropy / max_entropy
     
     # 5. Smoothness = 1 - Normalized Entropy
+    # High entropy (jerky) -> low smoothness
+    # Low entropy (smooth) -> high smoothness
     return max(0.0, 1.0 - normalized_entropy)
 
 
@@ -118,6 +161,15 @@ def detect_swings(
 ) -> List[Tuple[int, int]]:
     """
     Detects swing events based on speed thresholding.
+    
+    Args:
+        speed_mps (np.ndarray): 1D array of speed in m/s.
+        speed_thresh_mps (float): The speed threshold to define a swing.
+        min_swing_frames (int): The minimum number of contiguous frames
+                                above threshold to be considered a swing.
+
+    Returns:
+        List[Tuple[int, int]]: A list of (start_frame, end_frame) tuples.
     """
     try:
         from scipy.ndimage import label
@@ -135,6 +187,8 @@ def detect_swings(
         if len(indices) >= min_swing_frames:
             start_frame = indices[0]
             end_frame = indices[-1]
+            
+            # TODO: Add padding? For now, just return the core motion.
             swings.append((start_frame, end_frame))
             
     return swings
@@ -148,6 +202,16 @@ def analyze_swing(
 ) -> Dict[str, Any]:
     """
     Calculates all metrics for a single detected swing.
+
+    Args:
+        full_data (Dict[str, np.ndarray]): A dict containing all trajectories
+            (e.g., 'bat_tip', 'RIGHT_SHOULDER', 'speed_mps', 'accel_px_per_frame_sq').
+        swing_frames (Tuple[int, int]): (start_frame, end_frame) of the swing.
+        fps (float): Video FPS.
+        scaler (PixelScaler): The initialized pixel-to-meter scaler.
+
+    Returns:
+        Dict[str, Any]: A dictionary of scalar metrics for this swing.
     """
     start, end = swing_frames
     
@@ -166,13 +230,16 @@ def analyze_swing(
         swing_shoulder_pts, swing_tip_pts, fps
     )
     
+    # Use absolute velocity for peak/mean
     abs_ang_vel = np.abs(swing_ang_vel_rps)
     peak_angular_velocity_rps = np.max(abs_ang_vel)
     mean_angular_velocity_rps = np.mean(abs_ang_vel)
     
     # 4. Swing Angle
+    # Total angular displacement
     start_angle = swing_angles_rad[0]
     end_angle = swing_angles_rad[-1]
+    # We use np.unwrap on the [start, end] pair to get the correct path
     swing_angle_rad = np.abs(np.unwrap([start_angle, end_angle])[1] - start_angle)
     swing_angle_deg = np.rad2deg(swing_angle_rad)
     
@@ -199,3 +266,4 @@ def analyze_swing(
         "smoothness_score": smoothness_score,
         "time_series": time_series_data, # Store this for plotting
     }
+
