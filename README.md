@@ -42,7 +42,7 @@ This is a complete mini-project that implements a bat swing analysis pipeline fr
     ```bash  
     python3 -m venv venv
     source venv/bin/activate
-    ```
+    ```  
 
 3.  **Install dependencies:**
     ```bash
