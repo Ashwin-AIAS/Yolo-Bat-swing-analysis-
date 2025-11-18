@@ -46,7 +46,7 @@ This is a complete mini-project that implements a bat swing analysis pipeline fr
 
 3.  **Install dependencies:**
     ```bash
-    pip install -r requirements.txt
+    pip install -r requirements.txt  
     ```
 
 4.  **Download a sample video:**
