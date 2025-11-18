@@ -39,7 +39,7 @@ This is a complete mini-project that implements a bat swing analysis pipeline fr
     ```
 
 2.  **Create a virtual environment (recommended):**
-    ```bash
+    ```bash  
     python3 -m venv venv
     source venv/bin/activate
     ```
