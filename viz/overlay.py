@@ -8,8 +8,6 @@ from typing import List, Dict, Any, Tuple
 from tqdm import tqdm
 from pathlib import Path
 import logging
-from pathlib import Path
-import logging
 
 # Define some colors (BGR format)
 COLOR_RED = (0, 0, 255)
@@ -28,15 +26,6 @@ def draw_frame_overlay(
 ) -> np.ndarray:
     """
     Draws all annotations on a single frame.
-    
-    Args:
-        frame (np.ndarray): The video frame (BGR).
-        frame_idx (int): The current frame index.
-        overlay_data (Dict[str, Any]): Dictionary containing trajectories
-            like 'bat_tip', 'keypoints', etc.
-    
-    Returns:
-        np.ndarray: The frame with overlays drawn.
     """
     vis_frame = frame.copy()
     h, w, _ = vis_frame.shape
@@ -88,74 +77,178 @@ def draw_frame_overlay(
     return vis_frame
 
 
+def create_swing_video(
+    video_path: str,
+    overlay_data: Dict[str, Any],
+    swing_frames: Tuple[int, int],
+    output_path: str,
+    fps: float,
+    padding_frames: int = 15
+):
+    """
+    Creates an annotated .mp4 video for a specific swing event.
+    """
+    start_f, end_f = swing_frames
+    
+    # Add padding
+    start_f = max(0, start_f - padding_frames)
+    end_f = end_f + padding_frames 
+    
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        logging.error(f"Video Error: Could not open video {video_path}")
+        return
+
+    # Get video properties
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    video_fps = min(fps, 30) # Cap output FPS at 30
+    
+    # Define the codec and create VideoWriter object
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v') # Codec for .mp4
+    out = cv2.VideoWriter(output_path, fourcc, video_fps, (frame_width, frame_height))
+
+    if not out.isOpened():
+        logging.error(f"Video Error: Could not open VideoWriter for {output_path}")
+        cap.release()
+        return
+
+    # Set the video capture to the starting frame
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
+    
+    current_frame_idx = start_f
+    
+    # Disable tqdm progress bar for video creation
+    for i in range(start_f, end_f + 1):
+        ret, frame = cap.read()
+        if not ret:
+            break 
+
+        # Draw overlay
+        overlay_frame = draw_frame_overlay(
+            frame=frame,
+            frame_idx=current_frame_idx,
+            overlay_data=overlay_data
+        )
+        
+        # Write the frame
+        out.write(overlay_frame)
+        current_frame_idx += 1
+        
+    # Release everything
+    cap.release()
+    out.release()
+    logging.info(f"Successfully saved video to {output_path}")
+
+
 def create_swing_gif(
     video_path: str,
     overlay_data: Dict[str, Any],
     swing_frames: Tuple[int, int],
     output_path: str,
     fps: float,
-    padding_frames: int = 15,
+    padding_frames: int = 15
 ):
     """
-    Creates an animated GIF for a specific swing event.
-    Reads frames directly from the video file to save memory.
-
-    Args:
-        video_path: Path to the source video file.
-        overlay_data: Per-frame overlay information (trajectories, keypoints).
-        swing_frames: (start_frame, end_frame) indices for the swing.
-        output_path: Where to write the GIF.
-        fps: Source video frames-per-second (used to set GIF speed).
-        padding_frames: Extra frames to include before/after the swing.
+    Creates an animated .gif for a specific swing event.
     """
     start_f, end_f = swing_frames
-
-    # Apply padding
-    start_f = max(0, int(start_f) - int(padding_frames))
-    end_f = int(end_f) + int(padding_frames)
-
-    gif_frames: List[np.ndarray] = []
-
-    cap = cv2.VideoCapture(str(video_path))
+    
+    # Add padding
+    start_f = max(0, start_f - padding_frames)
+    end_f = end_f + padding_frames
+    
+    cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         logging.error(f"GIF Error: Could not open video {video_path}")
         return
 
-    # Determine total frames to avoid overshooting
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    end_f = min(end_f, max(0, total_frames - 1)) if total_frames > 0 else end_f
-
-    # Seek to starting frame
+    # Set the video capture to the starting frame
     cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
+    
     current_frame_idx = start_f
-
-    for _ in range(start_f, end_f + 1):
+    gif_frames = []
+    
+    for i in range(start_f, end_f + 1):
         ret, frame = cap.read()
         if not ret:
-            break
+            break 
 
-        # Draw overlay for this frame
+        # Draw overlay
         overlay_frame = draw_frame_overlay(
             frame=frame,
             frame_idx=current_frame_idx,
-            overlay_data=overlay_data,
+            overlay_data=overlay_data
         )
-
+        
         # Convert BGR (OpenCV) to RGB (imageio)
         rgb_frame = cv2.cvtColor(overlay_frame, cv2.COLOR_BGR2RGB)
         gif_frames.append(rgb_frame)
         current_frame_idx += 1
-
+        
     cap.release()
-
+    
     if not gif_frames:
-        logging.warning("No frames were extracted for the GIF.")
+        logging.warning("No frames extracted for GIF")
         return
 
-    # Save the GIF. Cap FPS at 30 for reasonable GIF sizes.
-    try:
-        imageio.mimsave(str(output_path), gif_frames, fps=min(fps or 10, 30))
-    except Exception:
-        # Fallback: try saving with duration per frame
-        duration = 1.0 / min(fps or 10, 30)
-        imageio.mimsave(str(output_path), gif_frames, duration=duration)
+    # Save the GIF
+    imageio.mimsave(output_path, gif_frames, fps=min(fps, 30))
+    logging.info(f"Successfully saved GIF to {output_path}")
+
+
+def create_full_video_overlay(
+    video_path: str,
+    overlay_data: Dict[str, Any],
+    output_path: str,
+    fps: float,
+    disable_progress_bar: bool = False
+):
+    """
+    Creates one single .mp4 video of the *entire* analysis.
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        logging.error(f"Full Video Error: Could not open video {video_path}")
+        return
+
+    # Get video properties
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    video_fps = min(fps, 30) # Cap output FPS at 30
+    
+    # Define the codec and create VideoWriter object
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v') # Codec for .mp4
+    out = cv2.VideoWriter(output_path, fourcc, video_fps, (frame_width, frame_height))
+
+    if not out.isOpened():
+        logging.error(f"Full Video Error: Could not open VideoWriter for {output_path}")
+        cap.release()
+        return
+
+    pbar = tqdm(total=frame_count, desc=f"Creating full analysis video", disable=disable_progress_bar)
+    
+    frame_idx = 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break 
+
+        # Draw overlay
+        overlay_frame = draw_frame_overlay(
+            frame=frame,
+            frame_idx=frame_idx,
+            overlay_data=overlay_data
+        )
+        
+        # Write the frame
+        out.write(overlay_frame)
+        frame_idx += 1
+        pbar.update(1)
+        
+    # Release everything
+    pbar.close()
+    cap.release()
+    out.release()
+    logging.info(f"Successfully saved full analysis video to {output_path}")

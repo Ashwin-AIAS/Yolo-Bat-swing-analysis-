@@ -7,6 +7,12 @@ import time
 from pathlib import Path
 import pandas as pd
 import sys
+import os
+
+# --- NEW FIX: Prevent ML library conflict ---
+os.environ["OMP_NUM_THREADS"] = "1"
+# --- END OF FIX ---
+
 
 # Add project root to sys.path to allow importing modules
 sys.path.append(str(Path(__file__).parent))
@@ -51,7 +57,7 @@ with st.sidebar:
     
     yolo_model = st.text_input(
         "YOLO Model Path", 
-        value="runs/detect/train3/weights/best.pt", # <-- IMPORTANT CHANGE
+        value="runs/detect/train3/weights/best.pt",
         help="Path to your custom .pt model file."
     )
     
@@ -72,18 +78,15 @@ if run_button and uploaded_file is not None:
         with tempfile.TemporaryDirectory() as temp_dir_str:
             temp_dir = Path(temp_dir_str)
             
-            # --- THIS BLOCK IS CHANGED (Fix for OutOfMemoryError) ---
             # Save uploaded file temporarily in chunks to save memory
             video_path = temp_dir / uploaded_file.name
             with open(video_path, "wb") as f:
-                # Read and write in 1MB chunks
                 chunk_size = 1024 * 1024
                 while True:
                     chunk = uploaded_file.read(chunk_size)
                     if not chunk:
                         break
                     f.write(chunk)
-            # --- END OF CHANGE ---
                 
             # Define output directory
             output_dir = temp_dir / "analysis_results"
@@ -98,7 +101,7 @@ if run_button and uploaded_file is not None:
                     scale_mps=scale,
                     output_dir=output_dir,
                     fps_override=float(fps_override) if fps_override > 0 else None,
-                    disable_progress_bar=True  # <-- This fixes the [WinError 6] crash
+                    disable_progress_bar=True
                 )
                 
                 end_time = time.time()
@@ -111,7 +114,6 @@ if run_button and uploaded_file is not None:
                     st.header("📊 Swing Metrics")
                     df = pd.read_csv(metrics_csv_path)
                     
-                    # Clean up dataframe for display
                     if 'time_series' in df.columns:
                         df = df.drop(columns=['time_series'])
                     st.dataframe(df.style.format({
@@ -123,33 +125,48 @@ if run_button and uploaded_file is not None:
                         "smoothness_score": "{:.3f}",
                     }))
                     
-                    st.header("📈 Visualizations per Swing")
+                    st.header("📈 Visualizations")
+
+                    # Show full video first
+                    full_video = output_dir / "full_analysis_video.mp4"
+                    full_plot = output_dir / "all_swings_plots.png"
+
+                    if full_video.exists():
+                        st.subheader("Full Analysis Video")
+                        st.video(str(full_video))
+                    
+                    if full_plot.exists():
+                        st.subheader("Combined Swing Plots")
+                        st.image(str(full_plot))
+
+                    st.divider()
+                    st.subheader("Individual Swing Details")
                     
                     swing_ids = df["swing_id"].unique()
                     
-                    if len(swing_ids) == 0:
-                        st.warning("Analysis ran, but no swings were detected.")
-                    
                     for swing_id in swing_ids:
-                        st.subheader(f"Swing {swing_id}")
+                        st.markdown(f"**Swing {swing_id}**")
                         
-                        gif_path = output_dir / f"swing_{swing_id}_overlay.gif"
-                        plot_path = output_dir / f"swing_{swing_id}_plots.png"
+                        vid = output_dir / f"swing_{swing_id}_overlay.mp4"
+                        gif = output_dir / f"swing_{swing_id}_overlay.gif"
+                        plot = output_dir / f"swing_{swing_id}_plots.png"
                         
-                        col1, col2 = st.columns(2)
+                        col1, col2, col3 = st.columns(3)
                         
                         with col1:
-                            if gif_path.exists():
-                                st.image(str(gif_path), caption="Swing Overlay")
-                            else:
-                                st.warning("Overlay GIF not found.")
-                        
+                            if vid.exists():
+                                st.caption("Video")
+                                st.video(str(vid))
                         with col2:
-                            if plot_path.exists():
-                                st.image(str(plot_path), caption="Swing Plots")
-                            else:
-                                st.warning("Analytics plot not found.")
-                                
+                            if gif.exists():
+                                st.caption("GIF")
+                                st.image(str(gif))
+                        with col3:
+                            if plot.exists():
+                                st.caption("Plots")
+                                st.image(str(plot))
+                        st.divider()
+
                 else:
                     st.error("Analysis finished, but the `metrics.csv` file was not created. No swings may have been detected.")
 

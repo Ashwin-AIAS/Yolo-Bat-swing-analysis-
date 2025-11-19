@@ -6,8 +6,12 @@ print("DEBUG: Script started. Importing libraries...")
 import argparse
 import logging
 import sys
+import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
+
+# --- Prevent ML library conflict ---
+os.environ["OMP_NUM_THREADS"] = "1"
 
 import cv2
 import numpy as np
@@ -16,12 +20,8 @@ from tqdm import tqdm
 
 print("DEBUG: Importing local files... (Importing MediaPipe FIRST)")
 
-# --- IMPORT ORDER CHANGED ---
-# Import MediaPipe (pose) FIRST to avoid library conflict
 from pose.mediapipe_pose import MediaPipePose 
-# Import YOLO (detectors) SECOND
 from detectors.yolov8_detector import YOLOv8Detector 
-# --- END OF CHANGE ---
 
 from metrics.swing_metrics import (
     PixelScaler,
@@ -30,8 +30,9 @@ from metrics.swing_metrics import (
     analyze_swing,
 )
 from utils.geometry import interpolate_points, estimate_bat_tip, smooth_trajectory
-from viz.overlay import create_swing_gif
-from viz.plots import plot_swing_analytics
+# --- IMPORTED BOTH GIF AND VIDEO FUNCTIONS ---
+from viz.overlay import create_swing_video, create_swing_gif, create_full_video_overlay
+from viz.plots import plot_swing_analytics, plot_all_swing_analytics
 
 print("DEBUG: All imports successful.")
 
@@ -111,7 +112,6 @@ def process_frame(
     return {"keypoints": frame_keypoints, "bat_tip": bat_tip}
 
 
-# --- THIS BLOCK IS CHANGED (Removed type hints to fix SyntaxError) ---
 def run_pipeline(
     video_path,
     yolo_model_path,
@@ -120,7 +120,6 @@ def run_pipeline(
     fps_override = None,
     disable_progress_bar = False
 ):
-# --- END OF CHANGE ---
     """
     Main analysis pipeline function.
     """
@@ -130,8 +129,6 @@ def run_pipeline(
     # 1. Initialization
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    
-    # --- THIS BLOCK IS SWAPPED TO FIX HANG ---
     logging.info("Initializing MediaPipePose...")
     pose_estimator = MediaPipePose()
     logging.info("MediaPipePose initialized.")
@@ -139,8 +136,6 @@ def run_pipeline(
     logging.info("Initializing YOLOv8Detector...")
     detector = YOLOv8Detector(yolo_model_path)
     logging.info("YOLOv8Detector initialized.")
-    # --- END OF FIX ---
-    
     
     scaler = PixelScaler(pixel_ref=1.0, meter_ref=scale_mps)
     logging.info("PixelScaler initialized.")
@@ -252,28 +247,38 @@ def run_pipeline(
             # A. Plot
             plot_path = output_dir / f"swing_{i}_plots.png"
             logging.info(f"Generating plot: {plot_path}")
-            
             plot_swing_analytics(
                 swing_metrics["time_series"],
                 output_path=plot_path,
                 title=f"Swing {i} Analysis"
             )
 
-            # B. GIF
-            gif_path = output_dir / f"swing_{i}_overlay.gif"
-            logging.info(f"Generating GIF: {gif_path}")
-            
+            # B. Prepare overlay data
             overlay_data = {
                 "bat_tip": tip_trajectory,
                 "bat_tip_smooth": tip_trajectory_smooth,
                 "keypoints": all_keypoints,
             }
+
+            # C. Generate Individual Video
+            video_out_path = output_dir / f"swing_{i}_overlay.mp4"
+            logging.info(f"Generating video: {video_out_path}")
+            create_swing_video(
+                video_path=video_path,
+                overlay_data=overlay_data,
+                swing_frames=(start_frame, end_frame),
+                output_path=str(video_out_path),
+                fps=fps
+            )
             
+            # D. Generate Individual GIF (ADDED BACK)
+            gif_out_path = output_dir / f"swing_{i}_overlay.gif"
+            logging.info(f"Generating GIF: {gif_out_path}")
             create_swing_gif(
                 video_path=video_path,
                 overlay_data=overlay_data,
                 swing_frames=(start_frame, end_frame),
-                output_path=str(gif_path),
+                output_path=str(gif_out_path),
                 fps=fps
             )
             
@@ -298,51 +303,35 @@ def run_pipeline(
     else:
         logging.warning("No swings were analyzed. No metrics.csv file will be saved.")
 
+    # 7. Combined Visualizations
+    logging.info("Generating combined visualizations...")
+    
+    # Single plot for all swings
+    plot_path = output_dir / "all_swings_plots.png"
+    plot_all_swing_analytics(all_swing_metrics, str(plot_path))
+    logging.info(f"Saved combined plot to {plot_path}")
+
+    # Single video for full analysis
+    video_out_path = output_dir / "full_analysis_video.mp4"
+    overlay_data = {
+        "bat_tip": tip_trajectory,
+        "bat_tip_smooth": tip_trajectory_smooth,
+        "keypoints": all_keypoints,
+    }
+    create_full_video_overlay(
+        video_path=video_path,
+        overlay_data=overlay_data,
+        output_path=str(video_out_path),
+        fps=fps,
+        disable_progress_bar=disable_progress_bar
+    )
+
     logging.info("Analysis complete.")
 
 
 # This main() function is no longer used by __main__ but is kept
-# in case you want to fix argparse later.
 def main():
-    parser = argparse.ArgumentParser(description="Bat Swing Analysis CLI")
-    parser.add_argument(
-        "--video", type=str, required=True, help="Path to the input video file."
-    )
-    parser.add_argument(
-        "--yolo-model",
-        type=str,
-        default="yolov8n.pt",
-        help="Path to the YOLOv8 model file (.pt).",
-    )
-    parser.add_argument(
-        "--scale",
-        type=float,
-        required=True,
-        help="Pixel-to-meter scale (meters per pixel). E.g., 0.004",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default="results/default",
-        help="Directory to save analysis results (CSV, plots, GIFs).",
-    )
-    parser.add_argument(
-        "--fps",
-        type=float,
-        default=None,
-        help="Override video FPS. If not set, it's read from the video file.",
-    )
-    args = parser.parse_args()
-    
-    output_path = Path(args.output_dir)
-    
-    run_pipeline(
-        video_path=args.video,
-        yolo_model_path=args.yolo_model,
-        scale_mps=args.scale,
-        output_dir=output_path,
-        fps_override=args.fps,
-    )
+    pass
 
 
 if __name__ == "__main__":
@@ -353,7 +342,7 @@ if __name__ == "__main__":
     VIDEO_FILE = "data/sample_videos/cricket_swing.mp4"
     YOLO_MODEL = "runs/detect/train3/weights/best.pt"
     SCALE_MPS = 0.003
-    OUTPUT_DIR = "results/cricket_swing_custom_model_hardcoded"
+    OUTPUT_DIR = "results/cricket_swing_final_report" 
     FPS_OVERRIDE = None
     
     # --- Run the pipeline directly ---
@@ -364,7 +353,7 @@ if __name__ == "__main__":
             scale_mps=SCALE_MPS,
             output_dir=Path(OUTPUT_DIR),
             fps_override=FPS_OVERRIDE,
-            disable_progress_bar=True,  # <-- This fixes the [WinError 6] crash
+            disable_progress_bar=True,
         )
     except Exception as e:
         logging.error(f"A critical error occurred: {e}")
