@@ -1,27 +1,29 @@
 """
 Bat Swing Analysis - CLI Entrypoint (Hard-coded for debugging)
 """
-print("DEBUG: Script started. Importing libraries...")
+import os
+
+# --- CRITICAL FIX: Set these BEFORE importing anything else ---
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+# --------------------------------------------------------------
+
+print("DEBUG: Script started. Libraries configured.")
 
 import argparse
 import logging
 import sys
-import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
-
-# --- Prevent ML library conflict ---
-os.environ["OMP_NUM_THREADS"] = "1"
 
 import cv2
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-print("DEBUG: Importing local files... (Importing MediaPipe FIRST)")
+print("DEBUG: Importing lightweight local files...")
 
-from pose.mediapipe_pose import MediaPipePose 
-from detectors.yolov8_detector import YOLOv8Detector 
+# --- NOTE: Heavy AI imports moved to run_pipeline() to prevent startup crash ---
 
 from metrics.swing_metrics import (
     PixelScaler,
@@ -30,11 +32,10 @@ from metrics.swing_metrics import (
     analyze_swing,
 )
 from utils.geometry import interpolate_points, estimate_bat_tip, smooth_trajectory
-# --- IMPORTED BOTH GIF AND VIDEO FUNCTIONS ---
 from viz.overlay import create_swing_video, create_swing_gif, create_full_video_overlay
 from viz.plots import plot_swing_analytics, plot_all_swing_analytics
 
-print("DEBUG: All imports successful.")
+print("DEBUG: Lightweight imports successful.")
 
 
 # Configure logging
@@ -60,11 +61,12 @@ def get_video_fps(cap: cv2.VideoCapture) -> float:
     return fps
 
 
+# Removed type hints for detector/pose to avoid NameError (since imports are now local)
 def process_frame(
     frame: np.ndarray,
     frame_idx: int,
-    detector: YOLOv8Detector,
-    pose_estimator: MediaPipePose,
+    detector, 
+    pose_estimator,
 ) -> Optional[Dict[str, Any]]:
     """
     Processes a single video frame to detect objects and estimate pose.
@@ -74,7 +76,7 @@ def process_frame(
     bat_dets = [d for d in detections if d["class_name"] == "BAT"]
     
     if not person_dets:
-        logging.warning(f"No 'PLAYER' detected in frame {frame_idx}")
+        # logging.warning(f"No 'PLAYER' detected in frame {frame_idx}")
         return None
     
     person_dets.sort(key=lambda d: (d['bbox'][2] - d['bbox'][0]) * (d['bbox'][3] - d['bbox'][1]), reverse=True)
@@ -82,7 +84,7 @@ def process_frame(
 
     pose_results = pose_estimator.process_frame(frame)
     if not pose_results:
-        logging.warning(f"No pose detected in frame {frame_idx}")
+        # logging.warning(f"No pose detected in frame {frame_idx}")
         return None
 
     landmarks = pose_results.get("landmarks_2d_pixels", {})
@@ -90,7 +92,7 @@ def process_frame(
     missing_keypoint = False
     for key in REQUIRED_LANDMARKS:
         if key not in landmarks:
-            logging.warning(f"Missing keypoint '{key}' in frame {frame_idx}")
+            # logging.warning(f"Missing keypoint '{key}' in frame {frame_idx}")
             missing_keypoint = True
         frame_keypoints[key] = landmarks.get(key)
     
@@ -107,7 +109,8 @@ def process_frame(
         bat_bbox = bat_dets[0]["bbox"]
         bat_tip = estimate_bat_tip(bat_bbox, right_wrist_pt)
     else:
-        logging.warning(f"No 'BAT' detected or wrist missing in frame {frame_idx}")
+        # logging.warning(f"No 'BAT' detected or wrist missing in frame {frame_idx}")
+        pass
 
     return {"keypoints": frame_keypoints, "bat_tip": bat_tip}
 
@@ -123,19 +126,29 @@ def run_pipeline(
     """
     Main analysis pipeline function.
     """
+    print("DEBUG: run_pipeline started.")
     logging.info(f"Starting analysis for: {video_path}")
     logging.info(f"Using scale: {scale_mps:.5f} meters/pixel")
     
     # 1. Initialization
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    logging.info("Initializing MediaPipePose...")
-    pose_estimator = MediaPipePose()
-    logging.info("MediaPipePose initialized.")
+    # --- LAZY LOADING FIX ---
+    print("DEBUG: Lazy loading AI libraries...")
+    from pose.mediapipe_pose import MediaPipePose 
+    print("DEBUG: MediaPipe library imported.")
     
-    logging.info("Initializing YOLOv8Detector...")
+    from detectors.yolov8_detector import YOLOv8Detector 
+    print("DEBUG: YOLO library imported.")
+    # ------------------------
+    
+    print("DEBUG: Initializing MediaPipePose model...")
+    pose_estimator = MediaPipePose()
+    print("DEBUG: MediaPipePose initialized.")
+    
+    print("DEBUG: Initializing YOLOv8Detector model...")
     detector = YOLOv8Detector(yolo_model_path)
-    logging.info("YOLOv8Detector initialized.")
+    print("DEBUG: YOLOv8Detector initialized.")
     
     scaler = PixelScaler(pixel_ref=1.0, meter_ref=scale_mps)
     logging.info("PixelScaler initialized.")
@@ -247,20 +260,32 @@ def run_pipeline(
             # A. Plot
             plot_path = output_dir / f"swing_{i}_plots.png"
             logging.info(f"Generating plot: {plot_path}")
+            
             plot_swing_analytics(
                 swing_metrics["time_series"],
                 output_path=plot_path,
                 title=f"Swing {i} Analysis"
             )
 
-            # B. Prepare overlay data
+            # B. GIF
+            gif_path = output_dir / f"swing_{i}_overlay.gif"
+            logging.info(f"Generating GIF: {gif_path}")
+            
             overlay_data = {
                 "bat_tip": tip_trajectory,
                 "bat_tip_smooth": tip_trajectory_smooth,
                 "keypoints": all_keypoints,
             }
+            
+            create_swing_gif(
+                video_path=video_path,
+                overlay_data=overlay_data,
+                swing_frames=(start_frame, end_frame),
+                output_path=str(gif_path),
+                fps=fps
+            )
 
-            # C. Generate Individual Video
+            # C. Video (Individual)
             video_out_path = output_dir / f"swing_{i}_overlay.mp4"
             logging.info(f"Generating video: {video_out_path}")
             create_swing_video(
@@ -268,17 +293,6 @@ def run_pipeline(
                 overlay_data=overlay_data,
                 swing_frames=(start_frame, end_frame),
                 output_path=str(video_out_path),
-                fps=fps
-            )
-            
-            # D. Generate Individual GIF (ADDED BACK)
-            gif_out_path = output_dir / f"swing_{i}_overlay.gif"
-            logging.info(f"Generating GIF: {gif_out_path}")
-            create_swing_gif(
-                video_path=video_path,
-                overlay_data=overlay_data,
-                swing_frames=(start_frame, end_frame),
-                output_path=str(gif_out_path),
                 fps=fps
             )
             
@@ -330,8 +344,19 @@ def run_pipeline(
 
 
 # This main() function is no longer used by __main__ but is kept
+# in case you want to fix argparse later.
 def main():
-    pass
+    parser = argparse.ArgumentParser(description="Bat Swing Analysis CLI")
+    # ... args ...
+    args = parser.parse_args()
+    output_path = Path(args.output_dir)
+    run_pipeline(
+        video_path=args.video,
+        yolo_model_path=args.yolo_model,
+        scale_mps=args.scale,
+        output_dir=output_path,
+        fps_override=args.fps,
+    )
 
 
 if __name__ == "__main__":
@@ -353,7 +378,7 @@ if __name__ == "__main__":
             scale_mps=SCALE_MPS,
             output_dir=Path(OUTPUT_DIR),
             fps_override=FPS_OVERRIDE,
-            disable_progress_bar=True,
+            disable_progress_bar=True,  # Disable tqdm to prevent conflicts
         )
     except Exception as e:
         logging.error(f"A critical error occurred: {e}")
