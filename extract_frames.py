@@ -2,7 +2,7 @@ import cv2
 import os
 from pathlib import Path 
 import sys
-
+ 
 # --- Configuration ---
 # Make sure your video filename is correct!
 VIDEO_PATH = Path("data/sample_videos/cricket_swing.mp4") 
