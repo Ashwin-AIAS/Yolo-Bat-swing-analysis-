@@ -384,4 +384,5 @@ if __name__ == "__main__":
         logging.error(f"A critical error occurred: {e}")
         print(f"DEBUG: A critical error occurred: {e}")
         import traceback
+
         traceback.print_exc()
