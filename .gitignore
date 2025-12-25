@@ -6,7 +6,7 @@ venv/
 # VS Code
 .vscode/
 
-# OS files
+# OS files 
 .DS_Store 
 
 # Data, Results, and Models
@@ -19,3 +19,4 @@ runs/
 *.zip
 
 *.csv
+
