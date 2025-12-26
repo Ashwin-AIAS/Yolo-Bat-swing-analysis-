@@ -3,7 +3,7 @@
 This is a complete mini-project that implements a bat swing analysis pipeline from a single-camera video. It detects the player and bat, tracks key body joints and the bat-tip, and computes advanced metrics for each swing.
 
 ## Features  
-
+  
 * **Player & Bat Detection:** Uses a pre-trained YOLOv8 model.
 * **Pose Estimation:** Uses MediaPipe to find shoulder, elbow, wrist, and hip keypoints.
 * **Bat-Tip Tracking:** Estimates the bat-tip position based on bat detection and wrist position.
