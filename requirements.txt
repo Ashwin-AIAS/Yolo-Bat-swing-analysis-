@@ -12,7 +12,7 @@ sort-track
 
 # App & Visualization
 streamlit
-imageio
+imageio 
 imageio-ffmpeg
 
 # Testing
