@@ -1,5 +1,5 @@
 # Core scientific stack
-numpy
+numpy  
 pandas
 scipy
 opencv-python-headless
