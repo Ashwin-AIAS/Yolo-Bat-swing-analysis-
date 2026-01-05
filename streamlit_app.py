@@ -1,5 +1,5 @@
 """
-Streamlit Web Demo for Bat Swing Analysis
+Streamlit Web Demo for Bat Swing Analysis 
 """
 import streamlit as st
 import tempfile
