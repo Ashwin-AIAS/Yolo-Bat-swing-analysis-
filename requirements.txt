@@ -1,7 +1,7 @@
 # Core scientific stack
 numpy  
 pandas 
-scipy
+scipy  
 opencv-python-headless
 matplotlib    
 
