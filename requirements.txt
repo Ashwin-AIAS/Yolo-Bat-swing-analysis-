@@ -8,7 +8,7 @@ matplotlib
 # AI / ML
 ultralytics
 mediapipe
-sort-track
+sort-track  
 
 # App & Visualization
 streamlit
