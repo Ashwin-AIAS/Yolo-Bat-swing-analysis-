@@ -3,7 +3,7 @@ numpy
 pandas 
 scipy
 opencv-python-headless
-matplotlib
+matplotlib  
 
 # AI / ML
 ultralytics
